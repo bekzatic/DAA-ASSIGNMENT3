@@ -18,4 +18,13 @@ public class Edge implements Comparable<Edge>{
     public int compareTo(Edge o) {
         return Integer.compare(weight, o.weight);
     }
+
+    @Override
+    public String toString() {
+        return "Edge{" +
+                "u=" + u +
+                ", v=" + v +
+                ", weight=" + weight +
+                '}';
+    }
 }
