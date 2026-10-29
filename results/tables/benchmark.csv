@@ -1,0 +1,19 @@
+algorithm,graph,V,E,avg_time_ms,operations
+Kruskal,Small,10,30,0,0271,163
+Prim,Small,10,30,0,0455,248
+Tarjan SCC,Small,10,30,0,0115,40
+Topo (DAG),Small,10,30,0,0144,70
+Topo (cyclic),Small,10,30,0,0070,42
+Dijkstra,Small,10,30,0,1063,113
+Kruskal,Medium,100,500,0,3181,4925
+Prim,Medium,100,500,0,1843,6999
+Tarjan SCC,Medium,100,500,0,0831,600
+Topo (DAG),Medium,100,500,0,1076,1100
+Topo (cyclic),Medium,100,500,0,0516,546
+Dijkstra,Medium,100,500,0,2335,1542
+Kruskal,Large,1000,5000,1,1981,63714
+Prim,Large,1000,5000,0,9438,101464
+Tarjan SCC,Large,1000,5000,0,2755,6000
+Topo (DAG),Large,1000,5000,0,4258,11000
+Topo (cyclic),Large,1000,5000,0,1142,5637
+Dijkstra,Large,1000,5000,1,9216,15927
