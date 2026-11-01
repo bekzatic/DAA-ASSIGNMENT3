@@ -1,5 +1,5 @@
 variant,find_calls,parent_steps,avg_time_ms
-none,29998,49860792,60,5673
-path compression,29998,19995,0,4165
-union by size,29998,19996,0,1337
-both,29998,19996,0,1337
+none,29998,49860792,508.7835
+path compression,29998,19995,1.7740
+union by size,29998,19996,1.3088
+both,29998,19996,1.2678
