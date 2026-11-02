@@ -50,6 +50,16 @@ public class Tests {
         check("MST multiple valid trees -> same weight",
                 Kruskal.run(sq).totalWeight == 3 && Prim.run(sq).totalWeight == 3);
 
+        Graph dup = new Graph(5);
+        dup.addEdge(0, 1, 2);
+        dup.addEdge(1, 2, 2);
+        dup.addEdge(0, 2, 2);
+        dup.addEdge(2, 3, 5);
+        dup.addEdge(3, 4, 2);
+        dup.addEdge(2, 4, 5);
+        check("MST with duplicate edge weights",
+                Kruskal.run(dup).totalWeight == 11 && Prim.run(dup).totalWeight == 11);
+
         boolean same = true;
         for (int s = 0; s < 20; s++) {
             Graph g = new GraphGenerator(s).connectedUndirected(50, 200, 10);

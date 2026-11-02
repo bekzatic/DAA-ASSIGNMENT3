@@ -1,16 +1,28 @@
-# Assignment 3 — Graph Algorithms
+# Assignment 3 — Smart City Infrastructure and Route Planning
 
 Bekzat Amanbek
 
-In this assignment I took a small city road network and used it to try out the main graph algorithms from the course. The city has districts (vertices) and roads between them (edges with a cost or length). There are three tasks:
+## Overview
 
-1. **Build roads as cheaply as possible** so that every district is connected → minimum spanning tree (Kruskal and Prim).
-2. **Dependencies and one-way roads** → topological sort to find a valid order of tasks, and Tarjan's algorithm to find groups of districts where you can get from any district to any other.
-3. **Navigation** → shortest routes from the city center with Dijkstra.
+For this assignment I modeled a small "smart city" as a graph:
 
-Everything is written by hand in Java, without graph libraries. I also added operation counters to the algorithms, so I could compare them by more than just time.
+- **vertices** are districts (Center, North, East, South, West, Airport in the demo),
+- **edges** are roads or other infrastructure connections,
+- **weights** are either construction costs (for the MST) or travel distances (for Dijkstra).
 
-## Project structure
+The program solves three tasks:
+
+1. **Infrastructure planning:** find the cheapest set of roads that still connects every district. This is a minimum spanning tree (Kruskal and Prim).
+2. **Connectivity analysis:** for directed connections (one-way roads, dependencies between services), find a valid build order with topological sort, detect when no such order exists, and find groups of districts that can all reach each other (strongly connected components, Tarjan).
+3. **Route planning:** shortest distances and routes from a chosen district to every other one (Dijkstra).
+
+**Graph representation.** Both graph types use adjacency lists.
+
+- `Graph` (undirected, weighted) keeps an adjacency list for Prim plus a flat list of all edges for Kruskal. Each road is stored once in the edge list and appears in the adjacency lists of both of its ends.
+- `DirectedGraph` keeps only the outgoing edges of each vertex. Topological sort, SCC and Dijkstra all use this one.
+- `Graph.toDirected()` turns every two-way road into two one-way edges, so Dijkstra can run on the road map.
+
+Everything is written by hand in Java, with no graph libraries.
 
 ```
 src/
@@ -19,56 +31,76 @@ src/
 ├── mst/            Kruskal, Prim, MSTResult
 ├── connectivity/   TopologicalSort, TarjanSCC
 ├── shortestpath/   Dijkstra
-└── app/            Main, Tests, Benchmark
+└── app/            Main (demo), Tests, Benchmark
 scripts/plot.py     draws the charts
-results/            CSV tables and charts
+results/tables/     benchmark.csv, dsu.csv
+results/plots/      charts
 ```
 
-## How it works
+## Implementation
 
-Both graphs use adjacency lists. The undirected `Graph` also keeps a plain list of all edges, because Kruskal needs to sort them. For Dijkstra I convert each two-way road into two one-way edges with `toDirected()`.
+**DSU.** It stores a `parent` array and a `size` array. `find` uses path compression: after finding the root, every node on the path is pointed straight at it. `union` uses union by size, so the smaller tree goes under the bigger one. I made both optimizations switchable in the constructor so I could measure what each one gives. The DSU also counts `find` calls, `union` calls and the number of parent steps.
 
-**DSU.** I needed this for Kruskal. It uses path compression and union by size. I made both optimizations switchable in the constructor so I could check how much each one actually helps (spoiler: a lot, see below).
+**Kruskal.** Sort all edges by weight, go through them, and keep an edge only if `union(u, v)` succeeds, which means its ends were in different components. Stop after V − 1 edges. If fewer edges were taken, the graph is disconnected, and `MSTResult.connected` is `false`. Counted operations: comparisons during sorting, edges examined, `find` calls and `union` calls.
 
-**Kruskal.** Sort the edges by weight, then go through them and take an edge if its two ends are still in different components. Stop after taking V − 1 edges. If there are fewer edges than that at the end, the graph wasn't connected, and the result says so.
+**Prim.** Start at vertex 0 and keep a `PriorityQueue` of edges that leave the tree. I used the lazy version: old edges are not deleted from the queue, and an edge that comes out with both ends already in the tree is just skipped. If the tree ends up with fewer than V − 1 edges, the graph is disconnected. Counted operations: heap comparisons, edges examined, queue polls.
 
-**Prim.** Start from vertex 0 and keep a priority queue of the edges leaving the current tree. I used the "lazy" version: old edges stay in the queue, and when one comes out with both ends already in the tree, it's skipped.
+Both MST algorithms return the same kind of `MSTResult` (edges, total weight, connected flag, operation count), so comparing them is easy.
 
-**Topological sort.** Kahn's algorithm: repeatedly remove vertices that have no incoming edges. If some vertices are still left at the end, there is a cycle, so the method returns `null`. This makes it a cycle detector as well.
+**Topological sort (Kahn).** Count the in-degree of every vertex. Then repeatedly take a vertex with in-degree 0, add it to the order and decrease the in-degree of its neighbours. If some vertices never reach in-degree 0, they lie on a cycle, so the method returns `null` to say that no order exists. `isValidOrder` checks that every edge goes forward in the order, and the tests use it.
 
-**Tarjan SCC.** A single DFS that tracks `index` and `low` values and uses a stack. When `low[v] == index[v]`, everything on the stack above `v` is one component.
+**Tarjan SCC.** One DFS that assigns each vertex an `index` (discovery time) and a `low` value (the smallest index reachable). It also keeps a stack of visited vertices. When `low[v] == index[v]`, everything on the stack down to `v` is one component. Every vertex ends up in exactly one component.
 
-**Dijkstra.** Uses a binary heap (`PriorityQueue`). Outdated queue entries are skipped, distances are stored as `long`, and `prev[]` is kept so the actual route can be printed. If the graph has a negative edge, it throws an exception instead of returning a wrong answer.
+**Dijkstra.** Uses a binary heap (`PriorityQueue<long[]>`). Instead of a decrease-key operation, a new entry is pushed and outdated entries are skipped when they come out. Distances are `long`, unreachable vertices keep the value `INF`, and `prev[]` is used to rebuild the route. Before starting, it checks the edges and throws `IllegalArgumentException` if any weight is negative.
 
-## Complexity
+## Complexity Analysis
 
-| Algorithm | Time | Memory |
+Assumptions: adjacency lists for all graphs, a binary heap (`java.util.PriorityQueue`) for Prim and Dijkstra, and Java's merge-sort-based `List.sort` for Kruskal.
+
+| Algorithm | Time | Extra space |
 |---|---|---|
-| DSU find / union | ~O(α(V)), basically constant | O(V) |
-| Kruskal | O(E log E), the sorting is the expensive part | O(V + E) |
-| Prim (heap) | O(E log V) | O(E) |
-| Topological sort | O(V + E) | O(V) |
+| DSU `find` / `union` (both optimizations) | O(α(V)) amortized | O(V) |
+| DSU without optimizations | O(V) per operation in the worst case | O(V) |
+| Kruskal | O(E log E) = O(E log V) | O(V + E) |
+| Prim (lazy, binary heap) | O(E log E) = O(E log V) | O(E) |
+| Topological sort (Kahn) | O(V + E) | O(V) |
 | Tarjan SCC | O(V + E) | O(V) |
-| Dijkstra (heap) | O((V + E) log V) | O(V + E) |
+| Dijkstra (lazy, binary heap) | O((V + E) log V) | O(V + E) |
 
-**Kruskal vs Prim.** On paper they are the same. Kruskal is easier to write and fits sparse graphs that are stored as an edge list. Prim is usually the better choice for dense graphs because it doesn't sort every edge first.
+**DSU.** Without optimizations a tree can turn into a chain, and `find` then walks O(V) parents. Union by size keeps tree height at O(log V). Path compression flattens the paths that have been used. Together they give O(α(V)) amortized, where α is the inverse Ackermann function. It is at most 4 for any realistic V, so in practice it is constant.
 
-**Why Dijkstra breaks with negative weights.** Once Dijkstra takes a vertex out of the queue, it treats that distance as final. That only works because adding more edges can't make a path shorter. A negative edge breaks this. Small example: `A→B = 2`, `A→C = 3`, `C→B = −2`. Dijkstra settles B at 2 before it ever looks at C, but going through C actually costs 3 − 2 = 1. With negative weights you need Bellman-Ford, which is slower (O(V·E)).
+**Kruskal.** Sorting the E edges costs O(E log E), and since E ≤ V², log E ≤ 2 log V. After sorting there are at most E DSU operations at almost O(1) each. So the number of edges is what matters, and V barely affects the running time.
 
-## Experiment setup
+**Prim.** Every edge is pushed into the heap at most once (when the first of its ends joins the tree), and each push or poll costs O(log E). That gives O(E log E) = O(E log V). Both V and E matter, but E dominates in connected graphs. An eager version with decrease-key would keep only V entries in the heap, but the asymptotics with a binary heap stay the same.
 
-- Laptop: AMD Ryzen 9 8945HX, 32 GB RAM, Windows 11, OpenJDK 26
-- Graphs come from `GraphGenerator` with a fixed seed, so every run uses the same graphs:
-  - an undirected connected graph (random spanning tree plus extra random edges), weights 1–100
-  - a DAG
-  - a directed graph with cycles (a DAG plus some back edges)
-- Sizes: Small (V=10, E=30), Medium (V=100, E=500), Large (V=1000, E=5000)
-- Each algorithm gets 3 warm-up runs, then I take the average of 5 measured runs (`System.nanoTime()`)
-- While the benchmark runs, it also checks the results: Kruskal and Prim must give the same weight, the DAG order must be valid, and the cyclic graph must be detected as cyclic
+**Topological sort and SCC.** Each vertex is processed once and each edge is looked at a constant number of times, so the time is linear in V + E. Doubling either V or E roughly doubles the work. Tarjan's recursion depth can reach V.
+
+**Dijkstra.** Each successful relaxation pushes one heap entry, so there are at most E entries, and each costs O(log E) = O(log V). Together with visiting every vertex, that is O((V + E) log V). On the road graphs E is 5 times V (10 times after `toDirected()`), so the edges dominate.
+
+**Why Dijkstra is unsuitable for negative weights.** Dijkstra takes the vertex with the smallest distance from the queue and treats that distance as final. That is only correct because walking along more edges can never make a path cheaper. A negative edge breaks this. For example: `A→B = 2`, `A→C = 3`, `C→B = −2`. Dijkstra settles B at 2 before it even looks at C, but the path through C costs 3 − 2 = 1. Anything already computed from B would be wrong too. For graphs with negative weights, Bellman-Ford (O(V·E)) should be used instead. My implementation refuses such input instead of returning a wrong answer.
+
+## Experimental Setup
+
+- **Machine:** AMD Ryzen 9 8945HX, 32 GB RAM, Windows 11, OpenJDK 26.
+- **Sizes:**
+
+| Graph | V | E |
+|---|---|---|
+| Small | 10 | 30 |
+| Medium | 100 | 500 |
+| Large | 1000 | 5000 |
+
+- **Reproducibility:** `GraphGenerator` uses `java.util.Random` with a fixed seed (42 for Small, 43 for Medium, 44 for Large), so every run builds exactly the same graphs.
+- **Undirected graph (MST, Dijkstra):** first a random spanning tree is built (each vertex i connects to a random earlier vertex), which guarantees the graph is connected. Then random edges are added until there are E of them. There are no self-loops or duplicate edges, and weights are uniform from 1 to 100. For Dijkstra this graph is converted with `toDirected()`, which gives 2E directed edges.
+- **DAG (topological sort):** the vertices are randomly shuffled, and every edge goes from an earlier vertex to a later one in that order. This means the graph **has no cycles**.
+- **Cyclic directed graph (topological sort, SCC):** built the same way with E − E/10 forward edges, plus E/10 "back" edges that go against the order. The back edges create cycles, so the graph **does contain cycles**. Topological sort has to report it, and SCC finds non-trivial components.
+- **Measurement:** each algorithm gets 3 warm-up runs (so the JIT compiles the code), then 5 measured runs. The time is the average over the 5 runs, measured with `System.nanoTime()`. The operation count comes from the last run. It is the same in every run because the input doesn't change.
+- **Correctness checks during the benchmark:** Kruskal's and Prim's weights must be equal (otherwise it throws), the DAG order must pass `isValidOrder`, and the cyclic graph must be reported as cyclic.
+- **DSU experiment:** V = 10 000. First 9 999 unions make one long chain (`union(v, v−1)`), which is the worst case for a plain DSU. Then come 10 000 `find` calls on random vertices. It runs 5 times for each of the 4 variants.
 
 ## Results
 
-### Demo on the city example
+### Demo (`app.Main`)
 
 ```
 === Task 1: MST ===
@@ -89,9 +121,7 @@ West: 8 via [0, 1, 3, 4]
 Airport: 11 via [0, 1, 3, 5]
 ```
 
-### Benchmark
-
-MST weights were 129 / 1352 / 12303, the same for Kruskal and Prim each time. The cyclic graphs had 5 / 21 / 127 SCCs.
+### Benchmark (`app.Benchmark`, `results/tables/benchmark.csv`)
 
 | Algorithm | Graph | V | E | Avg time (ms) | Operations |
 |---|---|---|---|---|---|
@@ -114,13 +144,15 @@ MST weights were 129 / 1352 / 12303, the same for Kruskal and Prim each time. Th
 | Topo (cyclic) | Large | 1000 | 5000 | 0.8789 | 5637 |
 | Dijkstra | Large | 1000 | 5000 | 8.6539 | 15927 |
 
-![Time vs V](results/plots/time_vs_vertices.png)
-![Time vs E](results/plots/time_vs_edges.png)
-![Kruskal vs Prim operations](results/plots/kruskal_vs_prim_ops.png)
+Other output of the benchmark:
 
-### DSU: with and without optimizations
+| Graph | MST weight (Kruskal = Prim) | SCCs in cyclic graph | DAG order valid | Cyclic graph |
+|---|---|---|---|---|
+| Small | 129 | 5 | yes | cycle detected |
+| Medium | 1352 | 21 | yes | cycle detected |
+| Large | 12303 | 127 | yes | cycle detected |
 
-V = 10 000. The unions build one long chain, which is the worst case for a plain DSU, and then I run 10 000 random `find` calls.
+### DSU optimizations (`results/tables/dsu.csv`)
 
 | Variant | find calls | parent steps | Avg time (ms) |
 |---|---|---|---|
@@ -129,38 +161,60 @@ V = 10 000. The unions build one long chain, which is the worst case for a plain
 | union by size | 29998 | 19996 | 1.3088 |
 | both | 29998 | 19996 | 1.2678 |
 
-## Discussion
+### Plots
 
-The operation counts match the theory pretty well. On the large graph Tarjan does exactly V + E = 6000 operations, and the topological sort on the DAG does 2(V + E) = 11000, so both are clearly linear. On the cyclic graph the topological sort stops early (5637), because vertices that sit on a cycle never reach in-degree 0.
+![Execution time vs number of vertices](results/plots/time_vs_vertices.png)
 
-For Kruskal and Prim, going from Medium to Large made E 10 times bigger and the operation count about 13–15 times bigger. That's the extra log factor from sorting and the heap. Prim counted more operations than Kruskal (101k vs 64k) because its lazy heap can hold up to E edges and every push or poll does several comparisons. Kruskal sorts once and after that only does cheap DSU calls. The times were close, though (6.8 ms vs 8.2 ms), so at this graph density I wouldn't call either one clearly better.
+![Execution time vs number of edges](results/plots/time_vs_edges.png)
 
-Dijkstra came out slowest on the large graph. That makes sense: after `toDirected()` there are 10 000 directed edges, and every successful relaxation pushes another entry into the heap.
+![Kruskal vs Prim operation count](results/plots/kruskal_vs_prim_ops.png)
 
-The DSU experiment surprised me the most. Without optimizations every `find` walks down a chain thousands of nodes long, which adds up to about 50 million steps and half a second. With just one of the optimizations it drops to around 20 thousand steps and roughly 1–2 ms. That's why the DSU part of Kruskal is almost free.
+## Comparison and Discussion
 
-One thing to keep in mind: on the Small graphs the times are fractions of a millisecond, so they are mostly JIT warm-up and timer noise. For small inputs, operation counts are a fairer comparison. Times also change a little from run to run, but the operation counts stay the same because the seed is fixed.
+**Kruskal vs Prim.** Both always returned the same total weight, both on the benchmark graphs and on 20 extra random graphs in the tests. The trees themselves can differ when several edges have equal weight, but the cost is the same. Prim counted more operations (101 464 vs 63 714 on Large). Its lazy heap can hold up to E edges, and every push and poll costs several comparisons. Kruskal sorts once and then only does DSU calls, which are almost free. The times were close, though: 6.8 ms for Prim vs 8.2 ms for Kruskal on Large, and Prim was also faster on Medium. My guess is that sorting a copy of the whole edge list costs more in practice than the comparison count suggests, while Prim only touches the edges of vertices already in the tree. From Medium to Large, E grows 10× and the operation count grows about 13× for Kruskal and 14.5× for Prim. That's the 10× from E plus the extra log factor, as predicted by O(E log E).
+
+**DSU.** This is where theory and practice agree most clearly. Without optimizations the chain makes every `find` walk thousands of parents: about 50 million steps and half a second. Union by size alone stops the chain from forming in the first place (tree height stays ≤ log V). Path compression alone flattens the chain after the first long `find`. Each one reduces the parent steps by about 2500× and the time by about 300–400×. With both, the time is the lowest (1.27 ms). In this test union by size already keeps the trees almost flat, so path compression adds little on top. Thanks to this, the DSU part of Kruskal costs almost nothing.
+
+**SCC.** Tarjan does exactly V + E operations: 40, 600 and 6000. That's perfectly linear, just as the theory says. The time grew from 0.14 ms to 0.87 ms to 1.74 ms, more slowly than the operations. On Small the time is mostly fixed overhead, and on the larger graphs the JIT-compiled code runs faster per operation. The number of components (5, 21, 127) grows with V because the back edges only join some of the vertices into cycles.
+
+**Topological sort.** On the DAGs Kahn's algorithm does 2(V + E) operations (70, 1100, 11000): one pass to count in-degrees and one pass to remove vertices. Every order passed the validity check. On the cyclic graphs it stops early (42, 546, 5637) and correctly returns "no order". The vertices on cycles never reach in-degree 0, so the edges behind them are never processed. That's why the cyclic version is also faster.
+
+**Dijkstra.** The operation count grows 113 → 1542 → 15927, about 10× per step, which matches V and E each growing 10× plus a small log factor. On Large it was the slowest algorithm (8.7 ms). It works on 2E = 10 000 directed edges, and every successful relaxation pushes a new heap entry.
+
+**Theory vs experiment.** The operation counts match the predicted growth closely: linear for Tarjan and topological sort, and E log E for Kruskal, Prim and Dijkstra. The milliseconds are noisier. On the Small graphs the times are fractions of a millisecond, mostly JIT and timer overhead, so they don't really show the asymptotics. With only 3 sizes, the plots are also just a rough picture. For small inputs, the operation counts are the more reliable comparison.
+
+## Testing
+
+`app.Tests` runs 17 checks, and all of them pass:
+
+| Required case | Test |
+|---|---|
+| small graphs | DSU on 5 vertices, Dijkstra on a hand-made 5-vertex graph with known distances and route |
+| disconnected graphs | two separate edges: both Kruskal and Prim report `connected = false`; DSU component count |
+| graphs with cycles | 3-cycle → topological sort returns `null`; 6-vertex graph with two cycles → exactly 3 SCCs |
+| multiple valid MSTs | 4-cycle with equal weights → both algorithms give weight 3 |
+| unreachable vertices | Dijkstra: isolated vertex has distance `INF` and an empty path |
+| duplicate edge weights | 5-vertex graph with weights 2, 2, 2, 5, 2, 5 → both give weight 11 |
+| single vertex | MST weight 0 and connected; SCC returns 1 component |
+
+Correctness checks:
+
+- **Kruskal == Prim:** same weight and V − 1 edges on 20 random connected graphs (50 vertices, 200 edges, different seeds).
+- **Topological order is valid:** `isValidOrder` on 20 random DAGs (60 vertices, 200 edges).
+- **Cycles are detected:** the 3-cycle above, plus the cyclic graphs in the benchmark.
+- **Every vertex is in exactly one SCC:** counts how many times each vertex appears across all components.
+- **Dijkstra distances:** compared with distances worked out by hand. Negative weights are rejected with an exception.
 
 ## Conclusion
 
-- Kruskal and Prim always found trees with the same weight. For a sparse road network, Kruskal with a good DSU is the simplest choice. Prim makes more sense for dense graphs.
-- Topological sort and SCC are linear and were the fastest algorithms here. Topological sort also tells you whether the graph has a cycle.
-- Dijkstra gives correct routes as long as no weight is negative. Otherwise you need Bellman-Ford.
-- DSU optimizations matter a lot. Without them the worst case is really slow.
-
-## Tests
-
-`app.Tests` has 16 checks, and all of them pass:
-
-- DSU: connected / component count
-- MST: single vertex, disconnected graph (both algorithms), several possible MSTs give the same weight, Kruskal == Prim on 20 random graphs
-- Topological sort: valid order on 20 random DAGs, cycle detection
-- SCC: correct count, every vertex is in exactly one component, single vertex
-- Dijkstra: distances, paths, unreachable vertices, negative weights are rejected
+- **Infrastructure planning (MST):** Kruskal and Prim always agree on the cost. For a sparse road network stored as an edge list, Kruskal with an optimized DSU is simple and fast. For dense networks stored as adjacency lists, Prim is the better fit because it doesn't need to sort every edge.
+- **DSU:** at least one optimization is necessary. Without them the worst case is roughly 400× slower, even on 10 000 vertices.
+- **Connectivity:** topological sort and Tarjan SCC are linear and the cheapest algorithms here. Use topological sort when an order of dependent tasks is needed (it also tells you if there is a cycle). Use SCC to find groups of districts that are mutually reachable over one-way roads.
+- **Route planning:** Dijkstra with a binary heap gives correct shortest routes and handles unreachable districts, but only when no weight is negative. With negative weights, use Bellman-Ford.
 
 ## How to run
 
-Needs JDK 17 or newer (the code uses records). In IntelliJ, just right-click `Main`, `Tests` or `Benchmark` and choose Run. From the terminal:
+You need JDK 17 or newer (the code uses records). In IntelliJ IDEA, right-click `Main`, `Tests` or `Benchmark` and choose Run. From the terminal, in the project root:
 
 ```bash
 javac -d out $(find src -name "*.java")
@@ -170,4 +224,4 @@ java -cp out app.Benchmark
 python scripts/plot.py
 ```
 
-The charts need `pandas` and `matplotlib`.
+`Benchmark` writes the CSV files to `results/tables/`, and `plot.py` (needs `pandas` and `matplotlib`) draws the charts into `results/plots/`.
